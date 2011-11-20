@@ -1,0 +1,24 @@
+This is a project for ChibiOS on ST iNemo v1 board
+
+Project setup
+==============
+
+The default cross-compiler prefix is arm-none-eabi- which matches the 
+Mentor Graphics Sourcery G++ (former CodeSourcery) toolchain. This can 
+be changed by adjusting the TRGT variable in the Makefile.
+
+The project expects to find ChibiOS source in the project directory as 
+ChibiOS. You can change this expectation in the Makefile by setting the 
+actual location to the CHIBIOS variable. Different versions of ChibiOS 
+may or may not work.
+
+ChibiOS sources can be downloaded from the ChibiOS site at
+
+ http://www.chibios.org/
+
+Building
+=========
+
+To build, simply run
+
+ $ make
