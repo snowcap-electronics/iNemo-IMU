@@ -1,7 +1,8 @@
 /***
  * IMU code for iNemo v1
  *
- * Copyright 2011 Kalle Vahlman, <zuh@iki.fi>
+ * Copyright 2011 Kalle Vahlman <zuh@snowcap.fi>
+ *                Tuomas Kulve <tuomas.kulve@snowcap.fi>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -32,9 +33,6 @@
 /* Project includes */
 #include "utils.h"
 
-#include "hmc5843.h"
-#include "stlm75.h"
-
 /*
 
  Peripherals for iNemo v1:
@@ -43,7 +41,7 @@
 
  I²C 1:
 
-    HMC5843  - Magnetometer
+    HMC5843  - Magnetometer (data ready indication on PB8)
 
  I²C 2:
 
@@ -62,66 +60,79 @@
  Analog input
  
     LPR530AL - X/Y Gyroscope
-    LPR530AL - X/Z Gyroscope
+    LPY530AL - X/Z Gyroscope
 
 */
 
-static
-void out(char *msg)
-{
-    size_t c = 0;
-    while (msg[c] != '\0')
-        chIOPut(&SD2, msg[c++]);
-}
+/* ADC conversion callback */
+static void samplesReady(ADCDriver *adcp, adcsample_t *buffer, size_t n);
 
-static
-void outInt(uint16_t n, size_t magnitude)
-{
-    char msg[64];
-    size_t c = 0;
-    size_t mag = magnitude;
-    while (c < 63) {
-        msg[c++] = 48 + (n / mag) % 10;
-        if (mag <= 1)
-            break;
-        mag = mag / 10;
-    }
-    msg[c] = '\0';
-    out(msg);
-}
-
-static
-void outln(char *msg)
-{
-    out(msg);
-    chIOPut(&SD2, '\n');
-    chIOPut(&SD2, '\r');
-}
-
-/*
- * I²C driver configuration
+/* We only read one channel (pin?) */
+#define ADC_CHANNELS 4
+/* How many samples to read before processing */
+#define ADC_BUFFER_DEPTH 4
+/* How long to sample the voltage
+   This is defined in cycles, and thus is dependent on the ADC clock rate.
+   The range is 1.5...239.5 cycles, in 8 non-linear steps
+   The higher the number, the longer is the sampling time.
  */
-static I2CConfig i2c_cfg = {
-    OPMODE_I2C, /* Bus mode */
-    100000, /* Clock speed */
-    STD_DUTY_CYCLE,
+#define ADC_SAMPLE_TIME ADC_SAMPLE_239P5
+
+static adcsample_t samples[ADC_CHANNELS * ADC_BUFFER_DEPTH];
+
+static const ADCConversionGroup convCfg = {
+    /* Circular buffer mode */
+    FALSE,
+    /* Sampled channels */
+    ADC_CHANNELS,
+    /* Conversion completed -callback */
+    samplesReady,
+    /* Conversion error -callback */
+    NULL,
+    /* CR1 register setup */
     0,
+    /* CR2 register setup, trigger from software */
+    ADC_CR2_EXTSEL_SWSTART,
+    /* Sample time setup for channels 10..17 */
+    ADC_SMPR1_SMP_AN10(ADC_SAMPLE_TIME)
+    | ADC_SMPR1_SMP_AN11(ADC_SAMPLE_TIME)
+    | ADC_SMPR1_SMP_AN14(ADC_SAMPLE_TIME)
+    | ADC_SMPR1_SMP_AN15(ADC_SAMPLE_TIME),
+    /* Sample rate setup for channels 0..9 */
     0,
+    /* Conversion sequence setup register 1
+       The sequence length is encoded here */
+    ADC_SQR1_NUM_CH(ADC_CHANNELS),
+    /* Conversion sequence setup register 2 */
     0,
+    /* Conversion sequence setup register 3
+       Read from analog inputs 10 (PC0), 11 (PC1), 14 (PC4) and 15 (PC5) */
+    ADC_SQR3_SQ1_N(ADC_CHANNEL_IN10)
+    | ADC_SQR3_SQ2_N(ADC_CHANNEL_IN11)
+    | ADC_SQR3_SQ3_N(ADC_CHANNEL_IN14)
+    | ADC_SQR3_SQ4_N(ADC_CHANNEL_IN15)
 };
 
-static WORKING_AREA(reader, 64);
-static msg_t readThread(void *UNUSED(arg)) {
+static void samplesReady(ADCDriver *adcp, adcsample_t *buffer, size_t UNUSED(n))
+{
+    /* The callback gets called when buffer is half-full and full.
+       The state is ADC_ACTIVE when half-full and ADC_COMPLETE when full.
+     */
+    if (adcp->state == ADC_COMPLETE) {
+        int i;
 
-    while (TRUE) {
+        for (i = 0; i < ADC_CHANNELS; i++) {
+            int j;
+            adcsample_t avg = 0;
+            for (j = 0; j < ADC_BUFFER_DEPTH; j++) {
+                // do stuff
+                avg += buffer[i*j];
+            }
+            avg = avg / ADC_BUFFER_DEPTH;
+        }
 
-        /* TODO: how frequently does it make sense to read? */
-        chThdSleepMilliseconds(750);
     }
-    return 0;
 }
-
-        static int16_t temperature = 0;
 
 int main(void) {
 
@@ -129,75 +140,38 @@ int main(void) {
     halInit();
     chSysInit();
 
-    /* Start serial driver */
-    sdStart(&SD2, NULL);
+    /* LPR530AL pin setup */
+    palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_ANALOG);
+    palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_ANALOG);
 
-    i2cStart(&I2CD1, &i2c_cfg);
+    /* LPY530AL pin setup */
+    palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_ANALOG);
+    palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_ANALOG);
 
-    hmc5843Init(&I2CD1);
+    /* Start ADC driver 1 */
+    adcStart(&ADCD1, NULL);
 
-/* FIXME: I²C is busted, why? */
-#if 0
-    /* I²C 1 pins */
-    palSetPadMode(GPIOB, 6, PAL_MODE_STM32_ALTERNATE_OPENDRAIN);
-    palSetPadMode(GPIOB, 7, PAL_MODE_STM32_ALTERNATE_OPENDRAIN);
-    /* HMC5843 data ready pin */
-    palSetPadMode(GPIOB, 8, PAL_MODE_INPUT);
-
-
-    rccDisableUSART3(TRUE);
-
-/*
-    palSetPadMode(GPIOB, 10, PAL_MODE_STM32_ALTERNATE_OPENDRAIN);
-    palSetPadMode(GPIOB, 11, PAL_MODE_STM32_ALTERNATE_OPENDRAIN);
-*/
-    
-#endif
-
-    i2cStart(&I2CD2, &i2c_cfg);
-    /* STLM75 has it's address pins grounded, so the address is 0x90 */
-    stlm75Start(&I2CD2, 0x90);
-
+    /* LED pin setup */
     palSetPadMode(GPIOB, GPIOB_LED, PAL_MODE_OUTPUT_PUSHPULL);
+
+{
+    int i;
+    for (i = 0; i < ADC_CHANNELS * ADC_BUFFER_DEPTH; i++)
+        samples[i] = 0;
+}
 
     /* This is our main loop */
     while (TRUE) {
 
-        /* With 100ms intervals */
-        chThdSleepMilliseconds(1000);
+        /* Sleep between conversions */
+        chThdSleepMilliseconds(100);
 
         /* Toggle LED on/off */
         palTogglePad(GPIOB, GPIOB_LED);
- 
- 
-        if (palReadPad(GPIOC, GPIOC_BUTTON) == PAL_LOW)
-            outln("Button pressed");
-        if (palReadPad(GPIOB, 8) == PAL_LOW)
-            outln("Mag data ready");
-{
-    int16_t xh, yh, zh, xl, yl, zl, s;
-    xh = yh = zh = xl = yl = zl = s = 0;
-    s = hmc5843Read(&xh, &yh, &zh, &xl, &yl, &zl);
-    outInt((xh << 8) | xl, 10000);
-    out(" ");
-    outInt(xh, 100);
-    out(" ");
-    outInt(xl, 100);
-    out(" ");
-    outInt(yh, 100);
-    out(" ");
-    outInt(yl, 100);
-    out(" ");
-    outInt(zh, 100);
-    out(" ");
-    outInt(zl, 100);
-    outln("");
-} 
-#if 0
-    out("Temperature: ");
-    outInt(stlm75ReadSync(), 100);
-    outln("");
-#endif
+
+        /* Start ADC conversion */
+        adcStartConversionI(&ADCD1, &convCfg, samples, ADC_CHANNELS * ADC_BUFFER_DEPTH);
+
     }
     return 0;
 }
