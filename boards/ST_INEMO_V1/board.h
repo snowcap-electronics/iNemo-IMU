@@ -115,8 +115,10 @@
 /*
  * Port D setup.
  * Everything input with pull-up
+ * PD0  - Normal input (XTAL).
+ * PD1  - Normal input (XTAL).
  */
-#define VAL_GPIODCRL            0x88888888      /*  PD7...PD0 */
+#define VAL_GPIODCRL            0x88888844      /*  PD7...PD0 */
 #define VAL_GPIODCRH            0x88888888      /* PD15...PD8 */
 #define VAL_GPIODODR            0xFFFFFFFF
 
