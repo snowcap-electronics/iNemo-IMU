@@ -82,7 +82,7 @@ static adcsample_t samples[ADC_CHANNELS * ADC_BUFFER_DEPTH];
 
 static const ADCConversionGroup convCfg = {
     /* Circular buffer mode */
-    FALSE,
+    TRUE,
     /* Sampled channels */
     ADC_CHANNELS,
     /* Conversion completed -callback */
