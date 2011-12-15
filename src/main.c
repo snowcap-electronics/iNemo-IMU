@@ -92,7 +92,7 @@ static const ADCConversionGroup convCfg = {
     /* CR1 register setup */
     0,
     /* CR2 register setup, trigger from software */
-    ADC_CR2_EXTSEL_SWSTART,
+    0,
     /* Sample time setup for channels 10..17 */
     ADC_SMPR1_SMP_AN10(ADC_SAMPLE_TIME)
     | ADC_SMPR1_SMP_AN11(ADC_SAMPLE_TIME)
