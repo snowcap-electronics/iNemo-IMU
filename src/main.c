@@ -160,17 +160,17 @@ int main(void) {
         samples[i] = 0;
 }
 
+    /* Start ADC conversion */
+    adcStartConversion(&ADCD1, &convCfg, samples, ADC_CHANNELS * ADC_BUFFER_DEPTH);
+
     /* This is our main loop */
     while (TRUE) {
-
-        /* Sleep between conversions */
-        chThdSleepMilliseconds(100);
 
         /* Toggle LED on/off */
         palTogglePad(GPIOB, GPIOB_LED);
 
-        /* Start ADC conversion */
-        adcStartConversionI(&ADCD1, &convCfg, samples, ADC_CHANNELS * ADC_BUFFER_DEPTH);
+        /* Sleep */
+        chThdSleepMilliseconds(1000);
 
     }
     return 0;
